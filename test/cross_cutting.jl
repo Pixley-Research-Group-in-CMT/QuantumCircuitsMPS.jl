@@ -1,6 +1,6 @@
-# === Task 17: cross-cutting invariant + integration tests ===
-# Fills the gaps NOT owned by earlier task test files (see plan §17 and the
-# Metis acceptance-criteria inventory). Grep markers for the Metis audit:
+# === cross-cutting invariant + integration tests ===
+# Fills the invariant gaps not owned by the per-feature test files.
+# Grep markers for the cross-cutting audit:
 #   THREAD-SAFETY, DRAW-COUNT, EVENT-LOG, EQUAL-K, SENTINEL
 # (STUB lives in test/legacy_removal.jl; the golden gate in golden_compare.jl.)
 #
@@ -16,7 +16,7 @@ using Test
 using Random
 using QuantumCircuitsMPS
 using QuantumCircuitsMPS: events, measurements            # ITensorMPS also exports `measurements`
-using QuantumCircuitsMPS: GateApplied, MeasurementOutcome # internal since Task 14
+using QuantumCircuitsMPS: GateApplied, MeasurementOutcome # internal
 
 # reference_select — the semantic oracle — is provided by test/testutils.jl,
 # which runtests.jl includes unconditionally before any test file.
@@ -39,7 +39,7 @@ function _cc_cipt_circuit(L)
 end
 
 function _cc_cipt_trajectory(circuit_master, seed; L = 6, n_steps = 72)
-    # copy(circuit) = the documented per-trajectory pattern (Task 9):
+    # copy(circuit) = the documented per-trajectory pattern:
     # private staircase state, intra-circuit aliasing preserved.
     local_circuit = copy(circuit_master)
     registry = RNGRegistry(gates_spacetime = 3 * (seed - 1) + 1,
@@ -52,7 +52,7 @@ function _cc_cipt_trajectory(circuit_master, seed; L = 6, n_steps = 72)
     return Float64.(state.observables[:Mz])
 end
 
-@testset "Cross-cutting invariants (Task 17)" begin
+@testset "Cross-cutting invariants" begin
 
     # -----------------------------------------------------------------------
     # THREAD-SAFETY: parallel copy(circuit) trajectories == sequential rerun.
