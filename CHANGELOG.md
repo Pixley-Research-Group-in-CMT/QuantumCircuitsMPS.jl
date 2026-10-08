@@ -8,6 +8,33 @@ in spirit (pre-1.0, so breaking changes can land in minor versions).
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-10-08
+
+### Fixed
+
+- MPS `PauliString`, `StringOrder`, and `DomainWall` (and hence `Correlator`
+  and `MagnetizationFluctuations`) returned the unnormalized contraction
+  ``\langle\psi|O|\psi\rangle`` instead of the expectation value, so their
+  values were scaled by the retained norm whenever truncation had occurred.
+  Results on normalized states are unchanged; a zero-norm MPS now throws an
+  `ArgumentError`.
+- `StaircaseRight`/`StaircaseLeft` ignored `range` during execution: two-site
+  gates acted on `(pos, pos+1)` instead of the documented `(pos, pos+range)`,
+  and open-boundary advancement walked the pair off the end of the chain for
+  `range > 1`. `range >= L` under open boundaries is now rejected with an
+  `ArgumentError`. The default `range=1` is unaffected.
+- Postselecting onto an outcome of zero Born probability (`Projection`,
+  `SpinSectorProjection`, `SpinSectorMeasurement`, user projectors) silently
+  produced a zero MPS or a `NaN` state vector. It now throws an
+  `ArgumentError` and leaves the state unchanged. Born-sampled `Measure` and
+  `Reset` are unaffected.
+- `total_spin_projector(S; s)` was numerically inaccurate for large spins
+  (errors of order ``10^{-3}`` at ``s = 10``), so `SpinSectorProjection` and
+  `SpinSectorMeasurement` could leak weight outside the requested sector.
+  Projectors are now accurate to machine precision for every supported spin;
+  ``s = 1`` results are byte-identical, ``s = 3/2`` and ``s = 2`` change only
+  at the ``10^{-14}`` level.
+
 ## [0.5.5] - 2026-08-14
 
 ### Changed
@@ -451,7 +478,8 @@ documentation.
 
 Initial clean release, with CIPT and MIPT example notebooks.
 
-[Unreleased]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.2...v0.5.3
