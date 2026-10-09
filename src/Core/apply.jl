@@ -53,7 +53,8 @@ function _apply_dispatch!(state::SimulationState, gate::AbstractGate, geo::Abstr
 end
 
 function _apply_dispatch!(state::SimulationState, gate::AbstractGate, geo::Bricklayer)
-    # Odd-L PBC single layers have no valid brickwork tiling — warn once per
+    # PBC single layers on an odd-length ring (odd-L :odd/:even, NNN wrap
+    # sublayers at L % 4 == 2) are not disjoint pair layers — warn once per
     # parity/L combination (maxlog=1 inside the helper protects manual
     # apply! step-loops from warning spam).
     _warn_bricklayer_odd_pbc(geo, state.L, state.bc)
@@ -153,8 +154,17 @@ end
 
 Related traits: `needs_normalization(gate)` (post-apply renormalization) and
 `is_measurement(gate)` (gate Born-samples via `:born_measurement`).
+
+`region` must not repeat a site: every backend's `_apply_single!` assumes
+distinct sites (a repeated site gives a non-unitary tableau update on the
+Clifford backend, for instance), so a repeated site is an `ArgumentError`
+here, before any backend is touched. This covers `apply!(state, gate,
+sites::Vector{Int})`, every geometry, and the circuit engine.
 """
 function execute!(state::SimulationState, gate::AbstractGate, region::Vector{Int})
+    allunique(region) || throw(ArgumentError(
+        "Gate $(typeof(gate)) applied to a region with a repeated site: $region. " *
+        "Sites within one region must be distinct."))
     _apply_single!(state, gate, region)
 end
 
@@ -163,11 +173,21 @@ end
 
 Reset (DERIVED - measurement + conditional X): Born-sample the single site in
 `region`; if the outcome is 1, flip it back to ``|0\rangle`` with PauliX.
+
+Defined for two-level sites only (`local_dim == 2`: `"Qubit"`, `"S=1/2"`, a
+`local_dim=2` `"Qudit"`). On any other site type the conditional X cannot
+return the site to ``|0\rangle`` (a spin-1 site measured in level 2 would be
+left there), so the gate is rejected with an `ArgumentError` *before* the
+measurement — the state and the `:born_measurement` stream are untouched.
 """
 function execute!(state::SimulationState, gate::Reset, region::Vector{Int})
     if support(gate) != length(region)
         throw(ArgumentError("Gate support $(support(gate)) does not match sites $(length(region))"))
     end
+    state.local_dim == 2 || throw(ArgumentError(
+        "Reset is only defined for two-level (qubit) sites, got local_dim=$(state.local_dim) " *
+        "(site_type=\"$(state.site_type)\"). The state is unchanged. To reset a higher-spin site, " *
+        "measure it with Measure(:Z; feedback=...) and map the observed level back yourself."))
     site = region[1]
     outcome = _measure_single_site!(state, site)
     if outcome == 1

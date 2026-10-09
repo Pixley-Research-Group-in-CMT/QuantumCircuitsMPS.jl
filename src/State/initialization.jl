@@ -100,7 +100,9 @@ end
 
 Derive the physical-site bit-pattern string (site 1 = MSB, site L = LSB) from
 a `ProductState`'s `binary_int`/`binary_decimal`/`bitstring` specification,
-padded or truncated to `L` characters. Shared verbatim by all three backends'
+padded or truncated to `L` characters (a `binary_int` that needs more than
+`L` binary digits is rejected with an `ArgumentError` instead of truncated,
+so every backend sees the same `L`-site state). Shared verbatim by all three backends'
 `initialize!(::SimulationState, ::ProductState)` methods (MPS:
 `src/State/initialization.jl`, state-vector: `src/StateVector/initialization.jl`,
 Clifford: `src/Clifford/initialization.jl`) — previously copy-pasted
@@ -123,6 +125,14 @@ call sites again.
 """
 function _bit_pattern_string(init::ProductState, L::Int, local_dim::Int)
     bit_pattern_str::String = if init.binary_int !== nothing
+        # The integer must fit in L binary digits: a longer base-2 string
+        # was previously passed on untruncated, so the backends disagreed
+        # (MPS/Clifford kept the leading L bits, state-vector/Gaussian built
+        # a state with too many sites).
+        nbits = ndigits(init.binary_int, base = 2)
+        nbits <= L || throw(ArgumentError(
+            "binary_int=$(init.binary_int) needs $nbits binary digits but the product state " *
+            "has only $L (the largest representable value is 2^$L - 1 = $(big(2)^L - 1))"))
         # Convert integer to binary string, padded to L digits
         lpad(string(init.binary_int, base = 2), L, "0")
     elseif init.binary_decimal !== nothing
@@ -221,9 +231,12 @@ function initialize!(state::SimulationState, init::ProductState)
         # levels; use ProductState(spin_state="Z<m>") for intermediate levels.
         [b == "0" ? "Up" : "Dn" for b in vec_int_pos]
     elseif site_type == "Qudit"
-        # Generic qudit: "0" → "1", "1" → "2", etc. (1-indexed states)
-        # For binary qudits, "0" → "1", "1" → "2"
-        [string(parse(Int, b) + 1) for b in vec_int_pos]
+        # Generic qudit: ITensor "Qudit" state names are zero-based level
+        # labels ("0", "1", ..., "d-1"), so the bit is the label as-is:
+        # "0" → level 0, "1" → level 1. (Earlier versions added 1 here, which
+        # double-shifted because ITensors.state already maps label n to
+        # basis index n+1, so binary_int=0 prepared |11…1⟩.)
+        vec_int_pos
     else
         throw(ArgumentError("Unknown site_type: $site_type"))
     end

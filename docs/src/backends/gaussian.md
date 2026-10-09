@@ -24,7 +24,7 @@ entropies = state.observables[:entropy]
 println("Final entropy: $(entropies[end])")
 ```
 
-**Physics**: `GaussianHaar()` draws an independent Haar-random ``O(4)``/``O(2)`` rotation for each bond (from `:gates_realization`) and conjugates it directly onto the Majorana covariance matrix — no dense Hilbert-space unitary is ever built. `Measure(:Z)` and `BondParity()` are projective parity measurements of, respectively, the on-site occupation ``i\gamma_{2i-1}\gamma_{2i}`` and the bond parity spanning two adjacent sites; both collapse ``\Gamma`` via the same fermionic-linear-optics contraction kernel used for the unitary case.
+**Physics**: `GaussianHaar()` draws an independent Haar-random ``O(4)``/``O(2)`` rotation for each bond (from `:gates_realization`) and conjugates it directly onto the Majorana covariance matrix — no dense Hilbert-space unitary is ever built. `Measure(:Z)` and `BondParity()` are projective parity measurements of, respectively, the on-site occupation parity ``i\gamma_{2i-1}\gamma_{2i} = 1 - 2c_i^\dagger c_i`` and the bond parity spanning two adjacent sites; both collapse ``\Gamma`` via the same fermionic-linear-optics contraction kernel used for the unitary case.
 
 ## What a Gaussian State Is
 
@@ -34,7 +34,13 @@ A pure fermionic Gaussian state on `L` modes is completely characterized (no exp
 \Gamma_{ab} = \frac{i}{2}\langle [\gamma_a, \gamma_b] \rangle \, ,
 ```
 
-where ``\gamma_1, \ldots, \gamma_{2L}`` are the Majorana operators (``\gamma_{2i-1} = c_i + c_i^\dagger``, ``\gamma_{2i} = i(c_i^\dagger - c_i)`` for fermionic mode `i`, with a Jordan–Wigner string on lower-indexed modes). A pure Gaussian state satisfies the invariant
+where ``\gamma_1, \ldots, \gamma_{2L}`` are the Majorana operators of the fermionic modes,
+
+```math
+\gamma_{2i-1} = c_i + c_i^\dagger \, , \qquad \gamma_{2i} = -i\,(c_i^\dagger - c_i) \, ,
+```
+
+for mode `i` (with a Jordan–Wigner string on lower-indexed modes) — the convention of [bravyi2005lagrangian](@cite). For ``a \neq b`` this is simply ``\Gamma_{ab} = \langle i\gamma_a\gamma_b\rangle``, and the occupation of mode `i` is ``c_i^\dagger c_i = (1 - i\gamma_{2i-1}\gamma_{2i})/2``, so an unoccupied mode has ``\Gamma_{2i-1,2i} = +1`` (see Conventions below). A pure Gaussian state satisfies the invariant
 
 ```math
 \Gamma^2 = -I
@@ -47,12 +53,10 @@ exactly (the eigenvalues of ``i\Gamma`` are all ``\pm 1``). Every gate and measu
 | Category | Gate | Fermionic-mode (`site_type="Qubit"`, default) | Majorana chain (`site_type="Majorana"`) |
 |---|---|---|---|
 | Random Gaussian unitary | `GaussianHaar()` | Haar-random ``O \in SO(4)`` on the 4 Majoranas of 2 adjacent sites, from `:gates_realization` | Haar-random ``O \in SO(2)`` on the 2 Majoranas of 2 adjacent sites — exactly ``\exp(\theta \gamma_i\gamma_j)``, ``\theta \sim U[0, 2\pi)`` (the class-DIII unitary `K_U`) |
-| Occupation flip | `PauliX()` | fermionic occupation-parity flip (reflects one Majorana row/column) — enables `Reset` | rejected: `ArgumentError` (a single Majorana site has no occupation to flip) |
 | On-site measurement | `Measure(:Z)` | projective occupation-parity measurement ``i\gamma_{2i-1}\gamma_{2i}`` | rejected: `ArgumentError` (use `BondParity` instead) |
 | Bond measurement | `BondParity()` | projective bond-parity measurement ``i\gamma_{2i}\gamma_{2i+1}`` between adjacent sites (PBC wrap `(L,1)` supported) | projective parity ``i\gamma_i\gamma_{i+1}`` between adjacent Majorana sites (PBC wrap supported) — this IS the class-DIII monitored measurement |
-| Feedback | `Reset()` | forces unoccupied (measure, then `PauliX` if occupied) — identical semantics to the other backends | rejected: `ArgumentError` (routes through `Measure(:Z)`, which is rejected) |
 
-Any gate outside this set — `Hadamard`, `CNOT`, `HaarRandom`, `RandomClifford`, `SWAP`, `PhaseGate`, `PauliY`, `PauliZ`, `CZ`, `Projection`, `SpinSectorProjection` — has no covariance-matrix representation and raises an informative error rather than being silently approximated:
+Any gate outside this set — `Hadamard`, `CNOT`, `HaarRandom`, `RandomClifford`, `SWAP`, `PhaseGate`, `PauliX`, `PauliY`, `PauliZ`, `CZ`, `Projection`, `SpinSectorProjection`, and `Reset` — has no covariance-matrix representation and raises an informative error rather than being silently approximated:
 
 ```julia
 using QuantumCircuitsMPS
@@ -63,10 +67,12 @@ initialize!(state, ProductState(binary_int=0))
 apply!(state, CNOT(), AdjacentPair(1))
 ```
 ```
-ArgumentError: Gaussian backend only supports fermionic Gaussian operations (GaussianHaar, PauliX, Measure(:Z), BondParity, Reset). Received: CNOT. Please switch to backend=:mps or backend=:statevector for non-Gaussian gates.
+ArgumentError: Gaussian backend only supports fermionic Gaussian operations (GaussianHaar, Measure(:Z), BondParity). Received: CNOT. Please switch to backend=:mps or backend=:statevector for non-Gaussian gates.
 ```
 
-`Measure(:Z)` and `Reset()` do **not** get their own `_apply_single!`/`execute!` overrides on the fermionic-mode granularity: `Measure` flows through the generic engine, which calls this backend's `born_probability` + `_measure_single_site!`; `Reset` composes `Measure` with `PauliX`. `BondParity` gets a dedicated `execute!` override (see [Backend Interface Contract](@ref)) because it measures two sites at once — outside the single-site `born_probability` contract.
+`PauliX` and `Reset` deserve a word, since they *are* available on the Clifford backend. The only occupation flip a covariance matrix can represent is the reflection of a single Majorana, i.e. conjugation by ``\gamma_{2i}``. That operator is parity-odd: it changes the fermion parity of the state, which no closed fermionic system can do (fermion-parity superselection). The Jordan–Wigner image of the qubit ``X_i`` fares no better — it is a product of ``2i-1`` Majoranas, parity-odd as well. So there is no physically meaningful "flip" for a fermionic mode, and `Reset` (measure, then flip if occupied) goes with it. `Reset` is rejected by a dedicated `execute!` override *before* its Born draw, so the covariance matrix and the `:born_measurement` stream are untouched. To put a mode into a definite occupation, use `Measure(:Z)` (random outcome) or prepare the pattern with `initialize!(state, ProductState(bitstring=...))`.
+
+`Measure(:Z)` does **not** get its own `_apply_single!`/`execute!` override on the fermionic-mode granularity: it flows through the generic engine, which calls this backend's `born_probability` + `_measure_single_site!`. `BondParity` gets a dedicated `execute!` override (see [Backend Interface Contract](@ref)) because it measures two sites at once — outside the single-site `born_probability` contract.
 
 ## Majorana Chain (`site_type="Majorana"`)
 
@@ -88,7 +94,7 @@ Key facts:
 - `site_type="Majorana"` requires **even `L`** (a pure Gaussian state needs an even number of Majoranas): odd `L` throws `ArgumentError` at construction.
 - ``\Gamma`` is ``L \times L`` (one Majorana per site) instead of ``2L \times 2L``.
 - `ProductState` bit patterns have length `L÷2`: bit `k` sets the parity sign of the consecutive Majorana pair ``(\gamma_{2k-1}, \gamma_{2k})`` (dimerized vacuum when all bits are `0`).
-- Rejected on the Majorana chain (informative `ArgumentError`, each naming "Majorana"): `PauliX`, `Measure(:Z)`, `Reset`, `Magnetization`. There is no single-Majorana occupation or ``\langle Z \rangle`` — parity lives on a *pair*.
+- Rejected on the Majorana chain (informative `ArgumentError`, each naming "Majorana"): `Measure(:Z)`, `Magnetization`, `BornProbability`. There is no single-Majorana occupation or ``\langle Z \rangle`` — parity lives on a *pair*. (`PauliX` and `Reset` are rejected on both granularities, see above.)
 - `EntanglementEntropy`, `MutualInformation`, and `TripartiteMutualInformation` work unchanged (the site→Majorana index mapping is the identity on this granularity, and arbitrary/wrapped site subsets are still supported).
 
 Physics sanity check on the dimerized vacuum (`ProductState(binary_int=0)`, all pairs unoccupied): even cuts see zero entanglement (the cut falls between dimerized pairs), odd cuts split a pair and see `log(2)/2` nats (half a fermion's worth), and two dimerized-paired Majorana sites have `MI = log(2)`:
@@ -111,7 +117,7 @@ MutualInformation([1], [2])(mstate)          # ≈ log(2) ≈ 0.6931
 | `EntanglementEntropy` | ✓ real `renyi_index` (normalized to `Float64`, finite, `> 0`) | ✓ | Rényi-`n` entropy computed from the covariance eigenvalue spectrum |
 | `Magnetization` | ✓ `:Z` only | ✗ `ArgumentError` | `:X`/`:Y` → `ArgumentError` on both granularities |
 | `BornProbability` | ✓ | ✗ (via `born_probability` rejection) | non-destructive single-mode read |
-| `MutualInformation` | ✓, incl. wrapped/non-contiguous regions | ✓, incl. wrapped/non-contiguous regions | the only backend that accepts non-contiguous/PBC-wrapped region pairs |
+| `MutualInformation` | ✓, incl. wrapped/non-contiguous regions | ✓, incl. wrapped/non-contiguous regions | the only backend that accepts non-contiguous/PBC-wrapped region pairs; the value is the fermionic-mode MI, see [Fermionic vs. spin subsystems](@ref) |
 | `TripartiteMutualInformation` | ✓ (composes `MutualInformation`) | ✓ | no Gaussian-specific code — composition "just works" |
 | `EntropyProfile` | ✓ (composes `EntanglementEntropy`) | ✓ | no Gaussian-specific code |
 | `StringOrder` | ✗ `ArgumentError` | ✗ `ArgumentError` | spin-1 Sz-string MPO formula, no fermionic-Gaussian analog |
@@ -166,6 +172,46 @@ the region path is more expensive than the bipartition path: it builds an
 arbitrary Majorana-index submatrix rather than reusing the contiguous
 prefix structure of `cut::Int`.
 
+## Fermionic vs. spin subsystems
+
+Every entropy on this backend is the entropy of a set of fermionic
+*modes*: the reduced state of a region ``A`` is the restriction
+``\Gamma_A`` of the covariance matrix to the Majoranas of ``A``, and its
+Rényi entropies come from the spectrum of ``i\Gamma_A``. This is the
+quantity used in the free-fermion literature (the antipodal mutual
+information of [pan2025topological](@cite), for instance), and it is the
+only one a covariance matrix can produce.
+
+It is not always the number a qubit backend would return for the same
+sites after a Jordan–Wigner transformation. A spin region's reduced density
+matrix is a partial trace over the complementary *spins*; the fermionic
+one is defined by the operator algebra generated by the Majoranas of ``A``,
+whose Jordan–Wigner strings reach through everything to the left of each
+mode. The two agree whenever ``A`` or its complement is a single contiguous
+block of sites: every `cut::Int` bipartition, every range `c1:c2`, and
+PBC-wrapped regions such as `[L, 1]` (whose complement is contiguous). For
+a region that is non-contiguous *and* has a non-contiguous complement, the
+strings of the second block run through the gap — which belongs to the
+complement — and the two entropies differ in general.
+`MutualInformation(A, B)` inherits this through ``S(A \cup B)``: for two
+non-adjacent blocks it is the fermionic mutual information, not the spin
+one.
+
+A minimal example, ``L = 4``: the state
+``\tfrac{1}{2}(1 + c_1^\dagger c_3^\dagger)(1 + c_2^\dagger c_4^\dagger)\lvert 0\rangle``
+is a pure Gaussian state in which modes ``\{1, 3\}`` form one pair and
+``\{2, 4\}`` another, so `EntanglementEntropy(cut=[1, 3])` is exactly `0`.
+Its Jordan–Wigner image is
+``\tfrac{1}{2}(\lvert 0000\rangle + \lvert 0101\rangle + \lvert 1010\rangle - \lvert 1111\rangle)``,
+whose spin sites ``\{1, 3\}`` share one bit of entanglement with
+``\{2, 4\}`` (the Jordan–Wigner sign on the last term is what entangles
+them): the state-vector backend would report ``\ln 2`` nats. Neither number is wrong;
+they answer different questions, and only the fermionic one is the entropy
+of a free-fermion subsystem. On the Majorana chain the point is sharper
+still: a region with an odd number of Majorana sites is not a tensor
+factor of any Hilbert space, and its entropy carries the unpaired-mode
+``\ln(2)/2`` described above.
+
 ## Example: Reproducing the Class-DIII Phase Diagram
 
 [`examples/gaussian_example.ipynb`](https://github.com/hainingpan/QuantumCircuitsMPS.jl/blob/main/examples/gaussian_example.ipynb) reproduces Fig. 1b of Pan et al., "Topological Modes in Monitored Quantum Dynamics": the staggered class-DIII monitored Majorana chain, mutual information vs. measurement probability `p`, at demo system sizes finishing in a few minutes. It uses the Majorana-chain granularity documented above with `Bricklayer(:odd)`/`Bricklayer(:even)` staggering.
@@ -197,9 +243,10 @@ On the Majorana chain (`site_type="Majorana"`), `ProductState` bit patterns have
 
 ## Conventions
 
+- **Covariance and Majorana definitions**: ``\Gamma_{ab} = \frac{i}{2}\langle[\gamma_a,\gamma_b]\rangle`` with ``\gamma_{2i-1} = c_i + c_i^\dagger`` and ``\gamma_{2i} = -i(c_i^\dagger - c_i)`` — the convention of [bravyi2005lagrangian](@cite). Every ``\Gamma`` in this package (the stored `state.backend.corr`, the docstring formulas, and the exact-diagonalization test oracle) uses it. Off-diagonal elements are ``\Gamma_{ab} = \langle i\gamma_a\gamma_b\rangle``, so a projective measurement of the parity ``i\gamma_a\gamma_b`` with eigenvalue ``\pm 1`` leaves ``\Gamma_{ab} = \pm 1``.
 - **Mode ↔ Majorana mapping**: fermionic mode `i` (1-indexed) ↔ Majorana indices ``(2i-1, 2i)``. On the Majorana chain, site `i` IS Majorana `i` directly.
-- **Occupation sign**: ``\Gamma_{2i-1,2i} = +1`` ↔ mode `i` unoccupied; ``\Gamma_{2i-1,2i} = -1`` ↔ occupied — i.e. ``\langle c_i^\dagger c_i\rangle = (1 - \Gamma_{2i-1,2i})/2``. Verified empirically against the Python GTN reference implementation's `get_C_f`.
-- **Measurement outcome**: `outcome = 0` ↔ unoccupied/parity `+1` result on ``\Gamma``; `outcome = 1` ↔ occupied/parity `-1` result. `ProductState` bit `1` ↔ occupied, matching this convention.
+- **Occupation sign**: ``\Gamma_{2i-1,2i} = \langle i\gamma_{2i-1}\gamma_{2i}\rangle = 1 - 2\langle c_i^\dagger c_i\rangle``, so ``\Gamma_{2i-1,2i} = +1`` ↔ mode `i` unoccupied; ``\Gamma_{2i-1,2i} = -1`` ↔ occupied — i.e. ``\langle c_i^\dagger c_i\rangle = (1 - \Gamma_{2i-1,2i})/2``. Verified empirically against the Python GTN reference implementation's `get_C_f`.
+- **Measurement outcome**: `outcome = 0` ↔ unoccupied / parity ``i\gamma_a\gamma_b = +1`` (``\Gamma_{ab} = +1`` after the collapse); `outcome = 1` ↔ occupied / parity ``-1`` (``\Gamma_{ab} = -1``). `ProductState` bit `1` ↔ occupied, matching this convention.
 - **Exact-Haar sampler note**: `haar_orthogonal` draws Haar-random `SO(n)` matrices exactly via QR decomposition of a Ginibre matrix (sign-fixed, det-corrected) — this is a **deliberate departure** from the Python GTN reference implementation, whose `get_O` uses `expm` of a random skew-symmetric matrix (an approximation the GTN codebase's own notes flag as not proven exactly Haar). All Gaussian-backend randomness (`GaussianHaar`, `RandomGaussianState`) uses the exact sampler.
 
 ## Cross-Backend RNG Reproducibility
@@ -223,7 +270,7 @@ sA.backend.corr == sB.backend.corr   # true — bitwise identical
 ```
 
 !!! note "Fermionic semantics are physically distinct — no cross-backend seed lockstep is claimed"
-    Unlike MPS/state-vector/Clifford (which agree on the same seeded trajectory because they share the same qubit Hilbert space), the Gaussian backend simulates a *different physical system* (free fermions vs. qubits) and makes **no** claim of matching MPS/SV/Clifford measurement records under the same seeds. Self-reproducibility (same seed ⇒ same ``\Gamma``, on the Gaussian backend) and the redundant-draw stream-position contract are the guarantees.
+    Unlike MPS/state-vector/Clifford (which agree on the same seeded trajectory because they share the same qubit Hilbert space), the Gaussian backend simulates a *different physical system* (free fermions vs. qubits) and makes **no** claim of matching MPS/SV/Clifford measurement records under the same seeds. Self-reproducibility (same seed ⇒ same ``\Gamma``, on the Gaussian backend) and the redundant-draw stream-position contract are the guarantees. The same distinction shows up in what the observables measure — see [Fermionic vs. spin subsystems](@ref).
 
 !!! warning "Purify/eigendecomposition platform caveat"
     Re-purification (`purify!`) eigendecomposes ``\Gamma/i`` via `LinearAlgebra.eigen`, which — like any LAPACK-backed eigensolver — can return eigenvectors in a platform/BLAS-dependent order or with an arbitrary sign/phase when eigenvalues are degenerate. This never affects the *physical* state (the reconstructed ``\Gamma`` is invariant), but it means bitwise reproducibility across different machines/BLAS backends is not guaranteed once `purify!` has fired (only same-machine, same-BLAS reproducibility is guaranteed) — the same caveat that applies to any eigendecomposition-based computation in this package.
