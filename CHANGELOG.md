@@ -8,6 +8,22 @@ in spirit (pre-1.0, so breaking changes can land in minor versions).
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-10-09
+
+### Fixed
+
+- Projective gates on the MPS backend (`Projection`, `SpinSectorProjection`,
+  `SpinSectorMeasurement`, and through them `Measure` and `Reset`) were
+  rejected as impossible whenever the raw projected norm
+  ``\lVert P\psi\rVert^2`` fell below `POSTSELECTION_PROB_TOL`, even for an
+  outcome of probability one: the MPS is not renormalized after truncated
+  unitary layers, so ``\lVert\psi\rVert^2`` itself can be that small. The
+  guard now tests the Born probability
+  ``\lVert P\psi\rVert^2 / \lVert\psi\rVert^2`` (the `SpinSectorMeasurement`
+  sector probabilities are likewise divided by ``\langle\psi|\psi\rangle``),
+  and its error message reports the probability with both norms. Results on
+  normalized states are unchanged.
+
 ## [0.5.7] - 2026-10-09
 
 ### Removed
@@ -536,7 +552,8 @@ documentation.
 
 Initial clean release, with CIPT and MIPT example notebooks.
 
-[Unreleased]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.7...HEAD
+[Unreleased]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.8...HEAD
+[0.5.8]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.7...v0.5.8
 [0.5.7]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/hainingpan/QuantumCircuitsMPS.jl/compare/v0.5.4...v0.5.5
