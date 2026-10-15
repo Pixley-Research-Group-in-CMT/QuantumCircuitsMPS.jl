@@ -37,23 +37,35 @@ abstract type AbstractBackend end
 """
 MPS-based backend: holds the underlying matrix product state, site indices,
 and truncation parameters (SVD cutoff, maximum bond dimension).
+
+`retruncate` selects what happens to the bonds a projective gate (one with
+`needs_normalization(gate) == true`) did NOT touch:
+- `:never` (default): only the bonds inside the gate's range are SVD-truncated,
+  exactly as for a unitary gate; the rest of the chain is left as is until the
+  next gate that touches it. The MPS is still renormalized after every
+  projective gate.
+- `:gate`: additionally run a full-chain `truncate!(mps; cutoff)` after every
+  projective gate (two sweeps over all `L` sites per gate — the behavior
+  before this option existed).
 """
 mutable struct MPSBackend <: AbstractBackend
     mps::Union{MPS, Nothing}
     sites::Vector{Index}
     cutoff::Float64
     maxdim::Int
+    retruncate::Symbol
 end
 
 """
 State-vector backend: holds the full statevector as a dense complex vector.
 
 `engine` selects the gate-application algorithm used by `_apply_single!`:
-- `:builtin` (default): Tier 1, reshape + permutedims + matmul (see
-  `apply_gate_sv!` in `src/StateVector/StateVector.jl`). Ground truth.
-- `:optimized`: Tier 2, hand-written stride-loop kernel (see
-  `apply_gate_sv_optimized!` in `src/StateVector/optimized.jl`). Faster,
-  numerically verified to match Tier 1 bitwise/to <1e-13.
+- `:optimized` (default): Tier 2, hand-written in-place stride-loop kernels
+  for 1- and 2-site gates (see `apply_gate_sv_optimized!` in
+  `src/StateVector/optimized.jl`). No per-gate copy of ψ.
+- `:builtin`: Tier 1, reshape + permutedims + matmul (see `apply_gate_sv!`
+  in `src/StateVector/StateVector.jl`). Ground truth the kernels are
+  verified against; the two engines agree to rounding (~1e-15), not bitwise.
 """
 mutable struct StateVectorBackend <: AbstractBackend
     ψ::Union{Vector{ComplexF64}, Nothing}
@@ -82,8 +94,11 @@ fermionic mode `i` (Bravyi's convention; an unoccupied mode has
 Gaussian state. Mode `i` (1-indexed, `1 <= i <= L`) maps to Majorana indices
 `(2i−1, 2i)`.
 
-`scratch` is a preallocated `2L×2L` buffer of the same size as `corr`, used
-by the Gaussian gate-application kernel to avoid per-gate allocation.
+`scratch` is a preallocated `2L×2L` buffer of the same size as `corr`: the
+`GaussianHaar` rotation stages its row/column blocks in it
+(`conjugate_rows_cols!`) and the general contraction kernel
+`gaussian_contraction!` accepts it, so no gate allocates per application
+(the parity projection `parity_projection!` is allocation-free on its own).
 
 `purify_tol` is the threshold on ``\|\Gamma^2+I\|`` (or an equivalent purity
 diagnostic) above which the backend re-purifies `corr` to correct
